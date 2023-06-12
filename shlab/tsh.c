@@ -319,6 +319,7 @@ void do_bgfg(char **argv)
     sigset_t* mask_all = &s1, *mask_prev = &s2;
     sigfillset(mask_all);
 
+    /* Part 1 - fgbg command error handler */
     if (s0 == NULL)
     {
         printf("%s command requires PID or %%jobid argument\n", s);
@@ -366,6 +367,7 @@ void do_bgfg(char **argv)
         }
     }
 
+    /* Part 2 - fgbg implementation */
     if (!strcmp(s, "fg"))
     {
         sigprocmask(SIG_BLOCK, mask_all, mask_prev);
@@ -474,7 +476,7 @@ void sigint_handler(int sig)
 
     sigprocmask(SIG_BLOCK, mask_all, mask_prev);
     pid_t pid = fgpid(jobs);
-    if (pid) kill(-pid, SIGINT);
+    kill(-pid, SIGINT);
     sigprocmask(SIG_SETMASK, mask_prev, NULL);
 
     return;
@@ -493,7 +495,7 @@ void sigtstp_handler(int sig)
 
     sigprocmask(SIG_BLOCK, mask_all, mask_prev);
     pid_t pid = fgpid(jobs);
-    if (pid) kill(-pid, SIGTSTP);
+    kill(-pid, SIGTSTP);
     sigprocmask(SIG_SETMASK, mask_prev, NULL);
 
     return;

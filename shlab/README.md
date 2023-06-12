@@ -189,11 +189,9 @@ void sigint_handler(int sig)
     sigprocmask(SIG_BLOCK, mask_all, mask_prev);
 
     pid_t pid = fgpid(jobs);
-    if (pid)
-    {
-        kill(-pid, SIGINT);
-        printf("Job [%d] (%d) terminated by signal 2\n", pid2jid(pid), pid);
-    }
+    
+    kill(-pid, SIGINT);
+    printf("Job [%d] (%d) terminated by signal 2\n", pid2jid(pid), pid);
 
     sigprocmask(SIG_SETMASK, mask_prev, NULL);
 
@@ -215,13 +213,11 @@ void sigtstp_handler(int sig)
 
     struct job_t *job = NULL;
     pid_t pid = fgpid(jobs);
-    if (pid)
-    {
-        job = getjobpid(jobs, pid);
-        job->state = ST;
-        kill(-pid, SIGTSTP);
-        printf("Job [%d] (%d) stopped by signal 20\n", job->jid, pid);
-    }
+  
+    job = getjobpid(jobs, pid);
+    job->state = ST;
+    kill(-pid, SIGTSTP);
+    printf("Job [%d] (%d) stopped by signal 20\n", job->jid, pid);
 
     sigprocmask(SIG_SETMASK, mask_prev, NULL);
 
@@ -248,6 +244,7 @@ void do_bgfg(char **argv)
     sigset_t* mask_all = &s1, *mask_prev = &s2;
     sigfillset(mask_all);
 
+    /* Part 1 - fgbg command error handler */
     if (s0 == NULL)
     {
         printf("%s command requires PID or %%jobid argument\n", s);
@@ -295,6 +292,7 @@ void do_bgfg(char **argv)
         }
     }
 
+    /* Part 2 - fgbg implementation */
     if (!strcmp(s, "fg"))
     {
         sigprocmask(SIG_BLOCK, mask_all, mask_prev);
@@ -340,7 +338,7 @@ void do_bgfg(char **argv)
 - `WIFSIGNALED(status)`：如果子进程因为一个信号终止，就返回真。
 - `WIFSTOPPED(status)`：如果引起返回的子进程是停止状态，就返回真。
 
-&emsp;&emsp;首先检查返回的进程是不是处于终止状态，如果是，改变进程状态并输出信息，同时直接退出循环，否则waitpid会陷入死循环。我这里做了个假设，就是`waitpid`永远先返回的是终止状态的进程，返回的如果是停止状态的进程说明其他终止状态的进程已经回收了，或者说没有。
+&emsp;&emsp;首先检查返回的进程是不是处于停止状态，如果是，改变进程状态并输出信息，同时直接退出循环，否则waitpid会陷入死循环，毕竟停止状态的进程一直都会在那里。我这里做了个假设，就是`waitpid`永远先返回的是终止状态的进程，返回的如果是停止状态的进程说明其他终止状态的进程已经回收了，或者说没有。
 
 ```c
 job = getjobpid(jobs, pid);
@@ -357,7 +355,7 @@ if (WIFSTOPPED(status))
 ```
 
 &emsp;&emsp;否则程序就是处于终止状态。进程终止有两种情况：
-1. 寿终正寝，正常终止，此时`WIFEXITED(status)`为真。
+1. 寿终正寝，此时`WIFEXITED(status)`为真。
 2. 非正常死亡，被一个信号所终止，此时`WIFSIGNALED(status)`为真。
 
 &emsp;&emsp;如果程序是正常退出的话，除了deletejob并不需要额外做什么，然而被信号终止的情况下需要额外输出一条进程终止信息。
@@ -384,7 +382,7 @@ void sigchld_handler(int sig)
     sigset_t s1, s2;
     sigset_t *mask_all = &s1, *mask_prev = &s2;
     struct job_t *job = NULL; 
-    int old_errno = errno, pid, jid, status; //stop_iter = 0;
+    int old_errno = errno, pid, jid, status;
 
     sigfillset(mask_all);
 
@@ -432,7 +430,7 @@ void sigint_handler(int sig)
 
     sigprocmask(SIG_BLOCK, mask_all, mask_prev);
     pid_t pid = fgpid(jobs);
-    if (pid) kill(-pid, SIGINT);
+    kill(-pid, SIGINT);
     sigprocmask(SIG_SETMASK, mask_prev, NULL);
 
     return;
@@ -451,9 +449,11 @@ void sigtstp_handler(int sig)
 
     sigprocmask(SIG_BLOCK, mask_all, mask_prev);
     pid_t pid = fgpid(jobs);
-    if (pid) kill(-pid, SIGTSTP);
+    kill(-pid, SIGTSTP);
     sigprocmask(SIG_SETMASK, mask_prev, NULL);
 
     return;
 }
 ```
+
+&emsp;&emsp;现在16个样例的输出和`tshref`都是一样的了。
