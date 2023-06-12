@@ -102,14 +102,21 @@ int mm_init(void)
     if ((heap_listp = mem_sbrk(12 * WORDSIZE)) == (void*)-1) return -1;
 
     WRITE(heap_listp, 0);
+
+    /* free_firstp */
     WRITE(heap_listp + WORDSIZE, PACK(2 * DWORDSIZE, 2));
     WRITE(heap_listp + (4 * WORDSIZE), PACK(2 * DWORDSIZE, 2));
+
+    /* free_lastp */
     WRITE(heap_listp + (5 * WORDSIZE), PACK(2 * DWORDSIZE, 2));
     WRITE(heap_listp + (8 * WORDSIZE), PACK(2 * DWORDSIZE, 2));
+
+    /* prologue block */
     WRITE(heap_listp + (9 * WORDSIZE), PACK(DWORDSIZE, 1));
     WRITE(heap_listp + (10 * WORDSIZE), PACK(DWORDSIZE, 1));
-    WRITE(heap_listp + (11 * WORDSIZE), PACK(0, 1));
 
+    /* epilogue block */
+    WRITE(heap_listp + (11 * WORDSIZE), PACK(0, 1));
 
     free_firstp = heap_listp + DWORDSIZE;
     free_lastp = free_firstp + 2 * DWORDSIZE;
@@ -285,15 +292,15 @@ static void* coalesce(void* ptr)
 
     if (!left_alloc && !right_alloc)
     {
-        /* merge with the left */
-        /* remove the corresponding block from the free block list */
         void* next_ptr = NEXT_BLOCK_ADDR(ptr);
 
+        /* merge with the left */
         size += (left_size + right_size);
         WRITE(HEADER_ADDR(PREV_BLOCK_ADDR(ptr)), PACK(size, 0));
         WRITE(FOOTER_ADDR(NEXT_BLOCK_ADDR(ptr)), PACK(size, 0));
         ptr = PREV_BLOCK_ADDR(ptr);
 
+        /* remove the corresponding block from the free block list */
         void* pred = (void*)READ(GET_PRED(next_ptr));
         void* succ = (void*)READ(GET_SUCC(next_ptr));
         assert(pred != NULL && succ != NULL);
@@ -416,9 +423,6 @@ void *mm_realloc(void *ptr, size_t size)
     }
     else  // use the old one
     {
-        int remaining = current_size - new_size;
-        assert((remaining >= 0 && (remaining & 0x7) == 0));
-
         place(ptr, new_size);
     }
 

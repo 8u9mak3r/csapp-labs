@@ -78,6 +78,7 @@ static void* best_fit(size_t size)
 ## place
 &emsp;&emsp;用`find_fit`函数找到的空闲块，满足当前分配请求后可能还有余，余的部分作为新的小空闲块。
 
+&emsp;&emsp;2023.06.12更新：由于大小8字节的空闲块没有意义，无法存储payload，所以如果`remaining_size == 8`，直接分配出去，不作为单独的空闲块。
 ```c
 static void place(void* p, unsigned int size)
 {
@@ -160,10 +161,10 @@ Reading tracefile: short2-bal.rep
 Perf index = 54 (util) + 40 (thru) = 94/100
 
 Reading tracefile: ./traces/amptjp-bal.rep
-Perf index = 60 (util) + 40 (thru) = 99/100
+Perf index = 60 (util) + 40 (thru) = 100/100
 
 Reading tracefile: ./traces/binary-bal.rep
-Perf index = 33 (util) + 5 (thru) = 38/100
+Perf index = 33 (util) + 6 (thru) = 39/100
 
 Reading tracefile: ./traces/binary2-bal.rep
 Perf index = 31 (util) + 5 (thru) = 36/100
@@ -175,16 +176,16 @@ Reading tracefile: ./traces/coalescing-bal.rep
 Perf index = 40 (util) + 40 (thru) = 80/100
 
 Reading tracefile: ./traces/cp-decl-bal.rep
-Perf index = 60 (util) + 40 (thru) = 99/100
+Perf index = 60 (util) + 40 (thru) = 100/100
 
 Reading tracefile: ./traces/expr-bal.rep
 Perf index = 60 (util) + 40 (thru) = 100/100
 
 Reading tracefile: ./traces/random-bal.rep
-Perf index = 55 (util) + 39 (thru) = 94/100
+Perf index = 55 (util) + 40 (thru) = 95/100
 
 Reading tracefile: ./traces/random2-bal.rep
-Perf index = 55 (util) + 33 (thru) = 88/100
+Perf index = 55 (util) + 40 (thru) = 95/100
 
 Reading tracefile: ./traces/realloc-bal.rep
 Perf index = 26 (util) + 40 (thru) = 66/100
@@ -196,6 +197,8 @@ Perf index = 27 (util) + 40 (thru) = 67/100
 ## 一点补充
 &emsp;&emsp;关于boundary tag，书上有这么一段：
 
+> Fortunately, there is a clever optimization of boundary tags that eliminates the need for a footer in allocated blocks. Recall that when we attempt to coalesce the current block with the previous and next blocks in memory, the size field in the footer of the previous block is only needed if the previous block is free. If we were to store the allocated/free bit of the previous block in one of the excess low-order bits of the current block, then allocated blocks would not need footers, and we could use that extra space for payload. Note, however, that free blocks would still need footers.
+
 &emsp;&emsp;仔细想了一下其实好像不太可行，为什么呢？假如现在有三块连续的已分配块，现在要释放中间一块。我们很容易能把最右边一块的header中表示上一块分配状态的位置0，因为定位右边一块只需要读取当前块的首部。但是没有上一块的footer，你不知道上一个块的大小，就无法在常数时间内定位到上一个块的header并修改对应的表示下一块分配状态的位。倒是可以一块一块一字节一字节地往前遍历读取，但是为了节省这点内存，你何必浪费这么多开销呢，万一这个块很大很大怎么办，反而得不偿失。
 
 &emsp;&emsp;每一个块都有一个header和一个footer，虽然有点浪费内存，但是能维护块之间的隐式双向链表，这样向前向后找相邻块就很方便，诸如合并等一些操作在常数时间就可以完成。
@@ -203,50 +206,20 @@ Perf index = 27 (util) + 40 (thru) = 67/100
 
 
 # 显式空闲链表（LIFO实现）
-&emsp;&emsp;因为程序不需要空闲块中的内容，所以可以把空闲块的主体部分利用起来，在原有隐式空闲表的基础上，把空闲块再另外组织成一个双向链表，每次分配的时候就从这个双线链表中找满足条件的空闲块。这样，可以把一次内存分配的复杂度从$O(totalblocks)$降至$O(freeblocks)$。
+&emsp;&emsp;因为程序不需要空闲块中的内容，所以可以把空闲块的主体部分利用起来，在原有隐式空闲表的基础上，把空闲块再另外组织成一个双向链表，每次分配的时候就从这个双向链表中找满足条件的空闲块。这样，可以把一次内存分配的复杂度从$O(totalblocks)$降至$O(freeblocks)$。
 
 &emsp;&emsp;每个空闲块中，在本应该是有效载荷的部分包含有一个前驱指针`pred`和一个后继指针`succ`。两个指针值加上原来的两个`boundary tag`，使得32位系统下空闲块最少为16字节（Malloc Lab是32位程序，所以这里只说32位，64位是同理的）。
 
 &emsp;&emsp;使用后进先出方式（LIFO）维护链表，每产生一个新的空闲块就把它放在链表头，每次分配的时候也总是首先从链表头开始遍历空闲块。结合之前的boundary tag，加上双向链表的插入删除操作，每次释放和合并操作依然是常数时间内完成。
 
-&emsp;&emsp;书上还提出了一种按照地址增序的维护方式，这样可以提高`first fit`的内存利用率~~说实话没想明白为啥~~。但是这样做会导致释放和合并操作变成线性复杂度，所以就没实现~~说白了就是懒~~。
 
 ## 基本宏定义
 &emsp;&emsp;增加了获取空闲块的前驱后继指针的宏函数。
 ```c
-/* single word (4) or double word (8) alignment */
-#define ALIGNMENT 8
-
-/* rounds up to the nearest multiple of ALIGNMENT */
-#define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
-
-
-#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
-
-/* basic constants and macros */
-#define WORDSIZE 4
-#define DWORDSIZE 8
-#define CHUNKSIZE (1 << 12)   // 4KB
-
-/* pack size and allocation bit into a word */
-#define PACK(size, alloc) ((size) | (alloc))
-
-/* read and write the content of a word */
-#define READ(p) (*(unsigned int*)(p))
-#define WRITE(p, val) (*(unsigned int*)(p) = (unsigned int)(val))
-
 /* get the size and allocation status from a block */
 #define GET_SIZE(p) ((READ(p)) & ~0x7)
 #define GET_ALLOC(p) ((READ(p)) & 0x1)
 #define GET_UNALLOCATABLE(p) ((READ(p)) & 0x2)
-
-/* calculate the address of header and footer of a block */
-#define HEADER_ADDR(p) ((char*)(p) - WORDSIZE)
-#define FOOTER_ADDR(p) ((char*)(p) + GET_SIZE(HEADER_ADDR(p)) - DWORDSIZE)
-
-/* calculate the address of previous block and next block*/
-#define PREV_BLOCK_ADDR(p) ((char*)(p) - GET_SIZE(((char*)(p) - DWORDSIZE)))
-#define NEXT_BLOCK_ADDR(p) ((char*)(p) + GET_SIZE(((char*)(p) - WORDSIZE)))
 
 /* calculate the addr where the addr of the predecessor and the successor are stored */
 #define GET_PRED(p) ((char*)(p))
@@ -270,14 +243,21 @@ int mm_init(void)
     if ((heap_listp = mem_sbrk(12 * WORDSIZE)) == (void*)-1) return -1;
 
     WRITE(heap_listp, 0);
+
+    /* free_firstp */
     WRITE(heap_listp + WORDSIZE, PACK(2 * DWORDSIZE, 2));
     WRITE(heap_listp + (4 * WORDSIZE), PACK(2 * DWORDSIZE, 2));
+
+    /* free_lastp */
     WRITE(heap_listp + (5 * WORDSIZE), PACK(2 * DWORDSIZE, 2));
     WRITE(heap_listp + (8 * WORDSIZE), PACK(2 * DWORDSIZE, 2));
+
+    /* prologue block */
     WRITE(heap_listp + (9 * WORDSIZE), PACK(DWORDSIZE, 1));
     WRITE(heap_listp + (10 * WORDSIZE), PACK(DWORDSIZE, 1));
-    WRITE(heap_listp + (11 * WORDSIZE), PACK(0, 1));
 
+    /* epilogue block */
+    WRITE(heap_listp + (11 * WORDSIZE), PACK(0, 1));
 
     free_firstp = heap_listp + DWORDSIZE;
     free_lastp = free_firstp + 2 * DWORDSIZE;
@@ -432,15 +412,15 @@ static void* coalesce(void* ptr)
 
     if (!left_alloc && !right_alloc)
     {
-        /* merge with the left */
-        /* remove the corresponding block from the free block list */
         void* next_ptr = NEXT_BLOCK_ADDR(ptr);
 
+        /* merge with the left */
         size += (left_size + right_size);
         WRITE(HEADER_ADDR(PREV_BLOCK_ADDR(ptr)), PACK(size, 0));
         WRITE(FOOTER_ADDR(NEXT_BLOCK_ADDR(ptr)), PACK(size, 0));
         ptr = PREV_BLOCK_ADDR(ptr);
 
+        /* remove the corresponding block from the free block list */
         void* pred = (void*)READ(GET_PRED(next_ptr));
         void* succ = (void*)READ(GET_SUCC(next_ptr));
         assert(pred != NULL && succ != NULL);

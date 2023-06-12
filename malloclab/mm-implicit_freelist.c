@@ -196,10 +196,12 @@ static void place(void* p, unsigned int size)
     unsigned int remaining_size = old_size - size;
     assert((remaining_size & 0x7) == 0);
 
+    if (remaining_size == DWORDSIZE) size = old_size;
+
     WRITE(HEADER_ADDR(p), PACK(size, 1));
     WRITE(FOOTER_ADDR(p), PACK(size, 1));
 
-    if (remaining_size != 0)    // set remaining part to be a new free block if any
+    if (remaining_size > DWORDSIZE)    // set remaining part to be a new free block if any
     {
         WRITE(HEADER_ADDR(NEXT_BLOCK_ADDR(p)), PACK(remaining_size, 0));
         WRITE(FOOTER_ADDR(NEXT_BLOCK_ADDR(p)), PACK(remaining_size, 0));

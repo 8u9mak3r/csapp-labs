@@ -1,9 +1,9 @@
 #! /bin/bash
 
-cd ~/Desktop/cmu15213/malloclab/handout
+cd ~/Desktop/labs/csapp-labs/malloclab
 
-./mdriver -f ./trace/short1-bal.rep -a -V
-./mdriver -f ./trace/short2-bal.rep -a -V
+./mdriver -f ./traces/short1-bal.rep -a -V
+./mdriver -f ./traces/short2-bal.rep -a -V
 ./mdriver -f ./traces/amptjp-bal.rep -a -V
 ./mdriver -f ./traces/binary-bal.rep -a -V
 ./mdriver -f ./traces/binary2-bal.rep -a -V
