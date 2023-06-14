@@ -602,8 +602,3 @@ Reading tracefile: ./traces/realloc2-bal.rep
 Perf index = 27 (util) + 40 (thru) = 67/100
 ```
 
-# 分离空闲链表
-&emsp;&emsp;核心思想是根据块大小的不同，把原来一个显式空闲链表分成多个显式空闲链表，分配内存时直接查对应大小的链表即可。
-
-&emsp;&emsp;懒，不想写了，就酱。
-
