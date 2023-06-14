@@ -404,7 +404,7 @@ if(M == 61 && N == 67)
 }
 ```
 
-&emsp;&emsp;运行结果如下，刚好获得满分。
+&emsp;&emsp;运行结果如下：
 ```shell
 
 Function 0 (2 total)
